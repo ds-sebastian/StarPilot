@@ -891,8 +891,9 @@ class Controls:
     hudControl.leadDistanceBars = self.sm['selfdriveState'].personality.raw + 1
     hudControl.visualAlert = self.sm['selfdriveState'].alertHudVisual
 
-    if self.CP.carFingerprint == "SUBARU_LEGACY_2025":
-      lines_allowed = bool(
+    # Toyota: dash lane lines from the model too (LKAS_HUD shows them only while steering, toyotacan)
+    if self.CP.carFingerprint == "SUBARU_LEGACY_2025" or self.CP.brand == "toyota":
+      lines_allowed = self.CP.brand == "toyota" or bool(
         CS.cruiseState.available and (
           (self.aol_enabled_setting and not self.lateral_off) or
           (not self.aol_enabled_setting and CC.enabled)

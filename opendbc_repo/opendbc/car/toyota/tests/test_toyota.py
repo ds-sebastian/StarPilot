@@ -51,9 +51,28 @@ class TestToyotaInterfaces(unittest.TestCase):
                            (1, 3, 1) if applied else (0, 0, 0))
           self.assertEqual(steering['STEER_REQUEST'], int(applied))
           self.assertEqual(steering['STEER_TORQUE_CMD'] != 0, applied)
-          self.assertEqual((hud['LKAS_STATUS'], hud['LDA_SA_TOGGLE'], hud['LDA_ALERT'], hud['TWO_BEEPS']), (1, 1, 1, 1))
+          self.assertEqual((hud['LKAS_STATUS'], hud['LDA_SA_TOGGLE'], hud['LDA_ALERT'], hud['TWO_BEEPS']), (2 if applied else 1, 1, 1, 1))
           for signal, value in state.lkas_hud.items():
             self.assertEqual(hud[signal], value)
+
+  def test_dashboard_follow_up_dots_with_lead_and_weak_lane(self):
+    from opendbc.car.toyota.tests.test_auto_hold import setup_hold, step_hold, decode
+
+    # LTA follow-up display (dots): steering with a lead while a lane line is not visible; lane highlight off meanwhile
+    cases = ((True, True, False, 1, 0), (True, True, True, 0, 1), (True, False, False, 0, 1), (False, True, False, 0, 0))
+    for steering, lead, left_visible, dots, barriers in cases:
+      with self.subTest(steering=steering, lead=lead, left_visible=left_visible):
+        cp, controller, command, state = setup_hold(CAR.TOYOTA_RAV4_TSS2, enabled=False)
+        state.out.standstill = state.out.brakePressed = False
+        state.out.steeringTorque = 0
+        command.enabled = command.latActive = steering
+        command.actuators.torque = 0.2
+        command.hudControl.leadVisible = lead
+        command.hudControl.leftLaneVisible = left_visible
+        command.hudControl.rightLaneVisible = True
+        frames = step_hold(controller, command, state)
+        hud = decode(cp, next(frame for frame in frames if frame[0] == 0x412), 'LKAS_HUD')
+        self.assertEqual((hud['LTA_FOLLOW_UP'], hud['BARRIERS'], hud['LKAS_STATUS']), (dots, barriers, 2 if steering else 1))
 
   def test_distance_command_matches_hud_bars_until_pcm_acknowledges(self):
     from opendbc.car.toyota.tests.test_auto_hold import setup_hold, step_hold, decode

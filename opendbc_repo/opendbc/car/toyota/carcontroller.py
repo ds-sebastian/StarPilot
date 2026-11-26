@@ -88,6 +88,7 @@ class CarController(CarControllerBase):
     self.last_torque = 0
     self.last_angle = 0
     self.alert_active = False
+    self.follow_up_frame = -1000  # last frame the LTA follow-up display condition held
     self.standstill_req = False
     self.sng_hack = False
     self.last_standstill = False
@@ -517,10 +518,17 @@ class CarController(CarControllerBase):
         # forcing the pcm to disengage causes a bad fault sound so play a good sound instead
         send_ui = True
 
+      # LTA follow-up display (dots on the distance bars): steering with a lead while a lane line is weak, held 1 s
+      follow_up_lead = lat_active and hud_control.leadVisible
+      if follow_up_lead and not (hud_control.leftLaneVisible and hud_control.rightLaneVisible):
+        self.follow_up_frame = self.frame
+      follow_up = follow_up_lead and self.frame - self.follow_up_frame < 100
+
       if self.frame % 20 == 0 or send_ui:
         can_sends.append(toyotacan.create_ui_command(self.packer, steer_alert, pcm_cancel_cmd, hud_control.leftLaneVisible,
                                                      hud_control.rightLaneVisible, hud_control.leftLaneDepart,
-                                                     hud_control.rightLaneDepart, lat_active, CS.lkas_hud))
+                                                     hud_control.rightLaneDepart, lat_active, CS.lkas_hud,
+                                                     follow_up=follow_up))
 
       if (self.frame % 100 == 0 or send_ui) and self.CP.flags & ToyotaFlags.DISABLE_RADAR.value:
         can_sends.append(toyotacan.create_fcw_command(self.packer, fcw_alert))
