@@ -104,11 +104,11 @@ def recorded_impreza_firmware():
           for ecu, address, version, logging, bus, obd in rows]
 
 
-@pytest.mark.parametrize('full_startup', [False, True])
-def test_recorded_impreza_firmware_selects_exact_identity_without_overrides(full_startup):
+@pytest.mark.parametrize(('full_startup', 'base'), [(False, False), (True, False), (True, True)], ids=('rs', 'rs-startup', 'base-startup'))
+def test_recorded_impreza_firmware_selects_exact_identity_without_overrides(full_startup, base):
   from opendbc.car.fw_versions import match_fw_to_car, build_fw_dict
 
-  fw = recorded_impreza_startup_firmware() if full_startup else recorded_impreza_firmware()
+  fw = recorded_impreza_startup_firmware(base=base) if full_startup else recorded_impreza_firmware()
   exact, matches = match_fw_to_car(fw, '0' * 17, log=False)
   assert exact and matches == {CAR.SUBARU_IMPREZA_2025}
   assert bytes.fromhex('20020e') not in build_fw_dict(fw)[0x787, None]
@@ -119,16 +119,20 @@ def test_recorded_impreza_firmware_selects_exact_identity_without_overrides(full
     assert CAR.SUBARU_IMPREZA_2025 not in match_fw_to_car(unknown, '0' * 17, log=False)[1]
 
 
-def recorded_impreza_startup_firmware(camera_version='1d21080046142108003d'):
+def recorded_impreza_startup_firmware(camera_version='1d21080046142108003d', *, base=False):
   # 388aeb4f2701bd8e/0000001e--432395cebf: preserve all actual responses, including other query brands.
+  # The Base capture uses the same query sequence and has distinct powertrain and EPS firmware.
+  abs_version, engine, eps = ('a220240405', '0421607007', 'c220240001') if base else ('a220240705', '0422657007', 'c220240101')
+  if base:
+    camera_version = '1d210800460000000000'
   rows = (
-    ('abs', 1968, 'a220240705', 'subaru', True, 1, True),
-    ('engine', 1954, '0422657007', 'subaru', True, 1, True),
-    ('eps', 1862, 'c220240101', 'subaru', True, 1, True),
+    ('abs', 1968, abs_version, 'subaru', True, 1, True),
+    ('engine', 1954, engine, 'subaru', True, 1, True),
+    ('eps', 1862, eps, 'subaru', True, 1, True),
     ('fwdCamera', 1927, camera_version, 'subaru', False, 0, True),
     ('fwdCamera', 1927, '20020e', 'subaru', True, 0, True),
-    ('abs', 1968, 'a220240705', 'subaru', False, 1, False),
-    ('engine', 1954, '0422657007', 'subaru', False, 1, False),
+    ('abs', 1968, abs_version, 'subaru', False, 1, False),
+    ('engine', 1954, engine, 'subaru', False, 1, False),
     ('hvac', 1971, 'f100b90100', 'hyundai', True, 1, True),
     ('fwdRadar', 2000, 'f100000002', 'hyundai', False, 1, True),
     ('fwdCamera', 1988, 'f100ac0300', 'hyundai', False, 1, True),
