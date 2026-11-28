@@ -129,6 +129,9 @@ class HKGVehicleTorquePolicy(HKGShapedTorquePolicy):
         highway = float(np.interp(speed, [27.0, 29.0], [0.0, 1.0]))
         arc = float(np.interp(abs(setpoint), [0.45, 0.65, 1.25, 1.6], [0.0, 1.0, 1.0, 0.0]))
         threshold += 0.18 * highway * arc
+        high_speed = float(np.interp(speed, (28., 30., 33., 36.), (0., 1., 1., 0.)))
+        shallow_arc = float(np.interp(abs(setpoint), (.35, .45, .70, .90), (0., 1., 1., 0.)))
+        threshold += .80 * high_speed * shallow_arc
       return threshold, 1 + (
         shaping.get_ioniq_5_friction_scale(speed, setpoint, jerk) - 1
       ) * shaping.get_ioniq_5_center_taper_scale(setpoint, speed)
