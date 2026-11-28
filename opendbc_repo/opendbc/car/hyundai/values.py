@@ -53,6 +53,11 @@ class CarControllerParams:
       self.STEER_DELTA_UP = 2
       self.STEER_DELTA_DOWN = 3
 
+    elif CP.carFingerprint == CAR.HYUNDAI_I30_2026:
+      self.STEER_MAX = 90
+      self.STEER_DELTA_UP = 2
+      self.STEER_DELTA_DOWN = 3
+
     elif CP.flags & HyundaiFlags.ALT_LIMITS_2:
       self.STEER_MAX = 170
       self.STEER_DELTA_UP = 2

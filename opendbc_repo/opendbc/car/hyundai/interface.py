@@ -4,6 +4,7 @@ from opendbc.car.pedal import supported_pedal_detected
 from opendbc.car.hyundai.classic_scc_aol import CLASSIC_SCC_IDS
 from opendbc.car import Bus, get_safety_config, structs, uds
 from opendbc.car.hyundai.discovery import kona_electric_se_candidate
+from opendbc.car.hyundai.fingerprints import FW_VERSIONS
 from opendbc.car.hyundai.hyundaicanfd import CanBus
 from opendbc.car.hyundai.non_scc_aol import NON_SCC_IDS
 from opendbc.car.hyundai.values import (is_blended, is_blended_alpha, HyundaiFlags, CAR, DBC, HyundaiSafetyFlags, CANFD_ANGLE_MODEL_BITS,
@@ -140,7 +141,18 @@ class CarInterface(CarInterfaceBase):
   def _get_params(ret: structs.CarParams, candidate, fingerprint, car_fw, alpha_long, is_release, docs) -> structs.CarParams:
     ret.brand = "hyundai"
 
-    if candidate == CAR.HYUNDAI_I30_2026:
+    i30 = candidate == CAR.HYUNDAI_I30_2026
+    if i30:
+      expected = FW_VERSIONS[candidate]
+      exact = {(fw.ecu.raw, fw.address, None): bytes(fw.fwVersion) for fw in car_fw
+               if fw.subAddress == 0 and bytes(fw.fwVersion).startswith(b"\xf1\x00")}
+      qualified = (not is_release and all(exact.get(key) in versions for key, versions in expected.items()) and
+                   fingerprint[0].get(0x421) == 8 and fingerprint[2].get(0x340) == 8 and
+                   fingerprint[2].get(0x485) == 8)
+      if qualified:
+        ret.flags |= HyundaiFlags.CHECKSUM_CRC8.value
+
+    if i30 and not qualified:
       # Controls may construct a PID for this profile. Keep it inert with valid gains.
       ret.lateralTuning.pid.kpBP = ret.lateralTuning.pid.kiBP = [0.0]
       ret.lateralTuning.pid.kpV = ret.lateralTuning.pid.kiV = [0.0]
@@ -336,7 +348,7 @@ class CarInterface(CarInterfaceBase):
     from opendbc.car.hyundai.legacy_long_aol import CARS as legacy_long_cars
     if candidate == CAR.KIA_CARNIVAL_2025 and any(fw.ecu == Ecu.fwdCamera and fw.fwVersion == CARNIVAL_2027_CAMERA_FW for fw in car_fw):
       ret.alphaLongitudinalAvailable = False
-    ret.openpilotLongitudinalControl = alpha_long and ret.alphaLongitudinalAvailable and candidate not in legacy_long_cars
+    ret.openpilotLongitudinalControl = not i30 and alpha_long and ret.alphaLongitudinalAvailable and candidate not in legacy_long_cars
     if (candidate in (CAR.KIA_CARNIVAL_2025, CAR.KIA_CARNIVAL_HEV_4TH_GEN) and
         ret.flags & HyundaiFlags.CANFD_ALT_BUTTONS and 0x1aa in fingerprint[CAN.ECAN] and
         not ret.openpilotLongitudinalControl):
@@ -422,6 +434,16 @@ class CarInterface(CarInterfaceBase):
 
     from opendbc.car.hyundai.gv60_startup import select_profile as gv60_select_profile
     gv60_select_profile(ret, is_release=is_release)
+
+    if i30:
+      ret.alphaLongitudinalAvailable = False
+      ret.openpilotLongitudinalControl = False
+      ret.pcmCruise = True
+      ret.radarUnavailable = True
+      ret.autoResumeSng = False
+      ret.flags &= ~HyundaiFlags.SEND_LFA.value
+      ret.minSteerSpeed = 5.0
+      ret.safetyConfigs = [get_safety_config(structs.CarParams.SafetyModel.hyundai, 0x6200)]
 
     return ret
 

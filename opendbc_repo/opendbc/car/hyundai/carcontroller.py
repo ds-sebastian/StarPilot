@@ -387,6 +387,9 @@ class CarController(CarControllerBase):
     if self.CP.carFingerprint == CAR.KIA_RAY_EV:
       self._ray_lkas11_active = True
 
+    if self.CP.carFingerprint == CAR.HYUNDAI_I30_2026:
+      return can_sends if CC.enabled and CC.latActive and CS.out.cruiseState.enabled else []
+
     # Button messages
     if not self.CP.openpilotLongitudinalControl or self._ray_pedal:
       if self._ray_pedal and CC.enabled and CS.out.cruiseState.enabled:

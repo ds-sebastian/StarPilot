@@ -37,6 +37,16 @@ def create_lkas11(packer, frame, CP, apply_torque, steer_req,
                   torque_fault, lkas11, sys_warning, sys_state, enabled,
                   left_lane, right_lane,
                   left_lane_depart, right_lane_depart, ray_lka_icon=None, aol_lka_icon=None):
+  if CP.carFingerprint == CAR.HYUNDAI_I30_2026:
+    values = dict(lkas11)
+    values["CR_Lkas_StrToqReq"] = apply_torque
+    values["CF_Lkas_ActToi"] = steer_req
+    values["CF_Lkas_ToiFlt"] = torque_fault or lkas11["CF_Lkas_ToiFlt"]
+    values["CF_Lkas_MsgCount"] = frame % 16
+    data = packer.make_can_msg("LKAS11", 0, values)[1]
+    values["CF_Lkas_Chksum"] = hyundai_checksum(data[:6] + data[7:])
+    return packer.make_can_msg("LKAS11", 0, values)
+
   values = {s: lkas11[s] for s in [
     "CF_Lkas_LdwsActivemode",
     "CF_Lkas_LdwsSysState",
