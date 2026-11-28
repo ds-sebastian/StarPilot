@@ -62,6 +62,7 @@ from openpilot.starpilot.longitudinal.profile_preferences import read_document_v
 from openpilot.starpilot.ui.long_profile_feature import (LongProfileFeature, is_long_confirm_action, VALUE_HELP, CATEGORY_HELP,
                                                        preset_label, preset_value)
 from openpilot.starpilot.ui.traffic_feature import TrafficFeature, EDIT_KEYS as TRAFFIC_EDIT_KEYS
+from openpilot.starpilot.ui.cruise_steps_feature import CRUISE_KEYS, apply_cruise, apply_reverse_cruise, cruise_rows
 from openpilot.starpilot.ui.lane_change_feature import LaneChangeFeature, KEYS as LANE_CHANGE_KEYS
 from openpilot.starpilot.ui.conditional_feature import BUTTON_PREFIX, ConditionalFeature
 from openpilot.starpilot.saved_source import read_saved
@@ -114,7 +115,6 @@ LANE_LIVE_KEYS = frozenset(("LaneCentering", "LaneCenteringPauseOnSignal", "Lane
                             "LaneCenteringE2EAuthority", "LaneCenteringStrength"))
 CURVE_KEYS = frozenset((CURVE_MASTER_KEY, CURVE_NO_LEAD_KEY))
 CURVE_PAGE_KEYS = CURVE_KEYS | {"ShowCSCStatus"}
-CRUISE_KEYS = frozenset(("CustomCruise", "CustomCruiseLong"))
 
 
 class FeatureSettingsOwner:
@@ -526,83 +526,6 @@ class FeatureSettingsOwner:
                           raw=b"1" if request.value == "On" else b"0", expected=request.expected,
                           authorized=authorized, temp_prefix=".global-preference-")
     return result.committed and result.verified
-
-  def _cruise_rows(self, configurable: bool) -> list[FeatureRow]:
-    software_capability = self._cruise_capability()
-    toyota_capability = toyota_cruise_capability(self.vehicle_params())
-    capability = software_capability or toyota_capability
-    group = "toyota_cruise" if toyota_capability is not None else "long"
-    allowed = configurable and capability is not None and self.authority(group)
-    unit_value, unit_raw, unit_valid = self._value("IsMetric")
-    unit_valid = unit_valid and unit_value in ("0", "1") and self._readable("IsMetric")
-    unit = "km/h" if unit_value == "1" else "mph"
-    reason = "Requires StarPilot cruise speed control" if capability is None else "Requires a compatible cruise configuration"
-    rows = []
-    if toyota_capability is not None:
-      value, raw, valid = self._value("ReverseCruise")
-      rows.append(FeatureRow("ReverseCruise", "Swap Toyota Cruise Steps", "On" if value == "1" else "Off" if value == "0" else "Invalid saved value",
-                             raw, ("Off", "On") if valid else (), available=allowed and valid,
-                             reason="Short press changes set speed by 5; hold changes it by 1",
-                             capability=toyota_capability, dependencies=()))
-      return rows
-    for key, label, default in (("CustomCruise", "Short press", 1.0), ("CustomCruiseLong", "Hold", 5.0)):
-      value, raw, valid = self._value(key)
-      try:
-        number = float(value)
-        valid = valid and self._readable(key) and math.isfinite(number) and 1.0 <= number <= 150.0
-      except ValueError:
-        valid = False
-        number = default
-      rows.append(FeatureRow(key, label, f"{number:g}" if valid else "Invalid saved value", raw,
-                             step=1.0 if valid else 0.0, minimum=1.0, maximum=150.0 if unit_value == "1" else 99.0,
-                             unit=unit if unit_valid else "", available=allowed and valid and unit_valid,
-                             reason="Invalid saved value or units" if not valid or not unit_valid else
-                                    "Used when StarPilot controls cruise speed" if allowed else reason,
-                             capability=capability, dependencies=(("IsMetric", unit_raw),),
-                             display_unit=unit if unit_valid else "", default_value=str(default)))
-    return rows
-
-  def _apply_cruise(self, request: FeatureSettingsRequest) -> bool:
-    key = request.key
-    if key not in CRUISE_KEYS or not request.confirmation:
-      return False
-    def authorized() -> bool:
-      if (not request.vehicle_fingerprint or self.vehicle_fingerprint() != request.vehicle_fingerprint or
-          request.capability is None or request.capability != (self._cruise_capability() or toyota_cruise_capability(self.vehicle_params())) or
-          not self.authority("long")):
-        return False
-      raw, readable = read_saved(self.params, key, 128)
-      if not readable or raw != request.expected:
-        return False
-      if self._cruise_capability() is None:
-        return False
-      units, units_readable = read_saved(self.params, "IsMetric", 8)
-      return (units_readable and units in (None, b"0", b"1") and
-              request.dependencies == (("IsMetric", units),) and
-              request.display_unit == ("km/h" if units == b"1" else "mph"))
-    if not authorized():
-      return False
-    try:
-      number = float(request.value)
-    except ValueError:
-      return False
-    upper = 150.0 if request.display_unit == "km/h" else 99.0
-    if not math.isfinite(number) or not 1.0 <= number <= upper:
-      return False
-    encoded = str(number).encode()
-    return commit_exact(self.params, key=key, max_bytes=128, raw=encoded, expected=request.expected,
-                        authorized=authorized, temp_prefix=".cruise-interval-").verified
-
-  def _apply_reverse_cruise(self, request):
-    if request.value not in ("On", "Off"):
-      return False
-    def authorized():
-      cap = toyota_cruise_capability(self.vehicle_params())
-      return bool(cap is not None and request.capability == cap and self.authority("toyota_cruise") and
-                  request.vehicle_fingerprint == self.vehicle_fingerprint() and request.dependencies == ())
-    return commit_exact(self.params, key="ReverseCruise", max_bytes=8, expected=request.expected,
-                        raw=b"1" if request.value == "On" else b"0", authorized=authorized,
-                        temp_prefix=".toyota-cruise-").verified
 
   def _dependents(self, *keys: str) -> tuple[tuple[str, bytes | None], ...]:
     return tuple((key, self._raw(key)) for key in keys)
@@ -1207,7 +1130,7 @@ class FeatureSettingsOwner:
     elif page == FeaturePage.WHEEL:
       title = "Wheel Controls"
       if self.show_cruise_intervals or toyota_cruise_capability(self.vehicle_params()) is not None:
-        rows.extend(self._cruise_rows(configurable))
+        rows.extend(cruise_rows(self, configurable))
       rows = self.wheel.page(rows)
     elif page == FeaturePage.SLC:
       cp = self.vehicle_params()
@@ -1505,7 +1428,7 @@ class FeatureSettingsOwner:
     if key == OUTPUT_MAX_KEY:
       return False
     if key == "ReverseCruise":
-      return self._apply_reverse_cruise(request)
+      return apply_reverse_cruise(self, request)
     if key in LATERAL_PAUSE_KEYS:
       return self._apply_lateral_pause(request)
     if key == "FordRearFogIndicator":
@@ -1585,7 +1508,7 @@ class FeatureSettingsOwner:
     if key in GLOBAL_BOOL_PREFERENCES:
       return self._apply_global_bool_preference(request)
     if key in CRUISE_KEYS:
-      return self._apply_cruise(request)
+      return apply_cruise(self, request)
     if key.startswith("conditional:"):
       return self.conditional.apply(request)
     if key in CURVE_ACTION_KEYS:

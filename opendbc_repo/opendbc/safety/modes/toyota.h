@@ -69,8 +69,8 @@ static bool toyota_lta = false;
 static bool toyota_radar_diagnostics_allowed = false;
 static bool toyota_enhanced_bsm = false;
 static bool toyota_factory_bsm_seen = false;
-static uint32_t toyota_bsm_tx_ts[2] = {0U};
-static bool toyota_bsm_session[2] = {false};
+static uint32_t toyota_bsm_tx_ts[2] = {0U, 0U};
+static bool toyota_bsm_session[2] = {false, false};
 static int toyota_dbc_eps_torque_factor = 100;   // conversion factor for STEER_TORQUE_EPS in %: see dbc file
 
 static bool toyota_hold_main_on = false;

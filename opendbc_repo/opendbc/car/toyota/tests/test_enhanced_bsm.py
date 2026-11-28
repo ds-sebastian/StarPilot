@@ -1,5 +1,3 @@
-from pathlib import Path
-
 import pytest
 
 from opendbc.car import Bus, gen_empty_fingerprint, structs
@@ -80,9 +78,8 @@ def test_poll_cadence_and_cleanup():
 
 @pytest.mark.parametrize('release', (False, True))
 def test_native_diagnostics_are_scoped_and_require_a_paced_moving_session(tmp_path, release):
-  path = Path(libsafety_py._build_libsafety(release=release, output_dir=tmp_path))
-  libsafety_py.load(path)
-  safety = libsafety_py.libsafety
+  path = libsafety_py._build_libsafety(release=release, output_dir=tmp_path)
+  safety = libsafety_py.ffi.dlopen(path)
   packer = CANPacker('toyota_nodsu_pt_generated')
 
   def rx(name, values):

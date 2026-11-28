@@ -9,6 +9,7 @@ import sys
 
 from opendbc.car.toyota.values import ToyotaSafetyFlags
 from opendbc.car.structs import CarParams
+from opendbc.safety import ALTERNATIVE_EXPERIENCE
 from opendbc.safety.tests.libsafety import libsafety_py
 import opendbc.safety.tests.common as common
 
@@ -571,6 +572,42 @@ class TestToyotaHighlanderAol(unittest.TestCase):
     self.rx(0x620, bytes(5) + bytes([4 if door else 0, 0, 0 if belt else 64]))
     self.assertTrue(self.safety.safety_rx_hook(self.packer.make_can_msg_safety("EPS_STATUS", 0, {"LKA_STATE": eps})))
     self.safety.aol_set_host_request(3)
+
+  def test_enhanced_bsm_diagnostics_require_scoped_fresh_and_paced_session(self):
+    left = 0x41
+    right = 0x42
+
+    def send(side, command):
+      return self.safety.safety_tx_hook(common.make_msg(0, 0x750, dat=bytes((side, 2, *command, 0, 0, 0, 0))))
+
+    start = (0x10, 0x60)
+    poll = (0x21, 0x69)
+    stop = (0x10, 0x01)
+
+    self.init(ae=32)
+    self.physical()
+    self.assertFalse(send(left, start))
+    self.init(ae=32 | ALTERNATIVE_EXPERIENCE.TOYOTA_ENHANCED_BSM)
+    self.assertFalse(send(left, start))
+    self.physical()
+    self.assertEqual(self.safety.aol_get_permission_mask(), 1)
+    speed = {f"WHEEL_SPEED_{wheel}": 36 for wheel in ("FL", "FR", "RL", "RR")}
+    self.assertTrue(self.safety.safety_rx_hook(self.packer.make_can_msg_safety("WHEEL_SPEEDS", 0, speed)))
+    self.assertTrue(send(left, start))
+    self.assertFalse(send(left, start))
+    self.assertFalse(send(left, poll))
+    self.assertFalse(send(right, poll))
+    self.safety.set_timer(1_040_000)
+    self.assertTrue(send(left, poll))
+    self.assertFalse(send(left, (0x22, 0x69)))
+    self.assertTrue(send(right, start))
+    self.rx(0x3F6, bytes(8))
+    self.safety.set_timer(1_080_000)
+    self.assertFalse(send(left, poll))
+    self.assertTrue(send(left, stop))
+    self.assertTrue(send(right, stop))
+    self.assertFalse(send(left, start))
+    self.assertFalse(send(left, stop))
 
   def test_radar_stock_lateral_never_grants_longitudinal(self):
     self.init(word=585)

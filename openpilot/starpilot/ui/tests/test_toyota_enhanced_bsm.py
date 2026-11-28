@@ -27,6 +27,7 @@ def test_vehicle_setting_and_startup_permission(tmp_path):
   row, = rows()
   assert row.available and row.value == 'Off'
   request = row_change(row)
+  assert request is not None
   assert request.key in VEHICLE_BOOL_KEYS and 'next startup' in confirmation_question(request)
   assert not owner.apply(request)
   request = replace(request, confirmation=True)

@@ -2,6 +2,7 @@
 import random
 import unittest
 
+from opendbc.car.hyundai.hyundaican import hyundai_checksum
 from opendbc.car.hyundai.values import HyundaiSafetyFlags
 from opendbc.car.structs import CarParams
 from opendbc.safety.tests.common import CANPackerSafety
@@ -566,6 +567,69 @@ class TestHyundaiSoftwareCruiseSafety(unittest.TestCase):
           self.assertFalse(safety.safety_tx_hook(button(2)))
           feed(cruise=True, speed=15, brake=True, count=3)
           self.assertFalse(safety.safety_tx_hook(button(2)))
+
+
+class TestHyundaiI30StockCruiseSafety(unittest.TestCase):
+  def setUp(self):
+    self.safety = libsafety_py.libsafety
+    self.packer = CANPackerSafety("hyundai_can_generated")
+    self.safety.init_tests()
+    self.safety.set_alternative_experience(0)
+    self.assertEqual(self.safety.set_safety_hooks(CarParams.SafetyModel.hyundai, 0x6200), 0)
+
+  def _lkas(self, bus, counter, torque=0, request=False, corrupt=False):
+    def add_crc(msg):
+      addr, data, source = msg
+      data = bytearray(data)
+      data[6] = hyundai_checksum(data[:6] + data[7:]) ^ int(corrupt)
+      return addr, data, source
+
+    values = {"CF_Lkas_MsgCount": counter, "CR_Lkas_StrToqReq": torque, "CF_Lkas_ActToi": request}
+    return self.packer.make_can_msg_safety("LKAS11", bus, values, fix_checksum=add_crc)
+
+  def _engage_stock_cruise(self):
+    frames = (
+      ("CLU11", {"CF_Clu_CruiseSwState": 2}, None),
+      ("EMS16", {}, checksum),
+      ("WHL_SPD11", {"WHL_SPD_FL": 15, "WHL_SPD_RR": 15}, checksum),
+      ("TCS13", {}, checksum),
+      ("MDPS12", {"CR_Mdps_StrColTq": 0}, None),
+      ("SCC12", {"ACCMode": 1}, checksum),
+    )
+    for name, values, fix_checksum in frames:
+      self.assertTrue(self.safety.safety_rx_hook(self.packer.make_can_msg_safety(name, 0, values, fix_checksum=fix_checksum)))
+    self.assertTrue(self.safety.get_controls_allowed())
+    self.assertTrue(self.safety.safety_config_valid())
+
+  def test_steering_requires_fresh_camera_and_stock_cruise(self):
+    self.assertFalse(self.safety.safety_tx_hook(self._lkas(0, 0, torque=1, request=True)))
+    self._engage_stock_cruise()
+    for count in (0, 1):
+      self.assertTrue(self.safety.safety_rx_hook(self._lkas(2, count)))
+    self.assertFalse(self.safety.safety_tx_hook(self._lkas(0, 0, torque=1, request=True, corrupt=True)))
+    self.assertFalse(self.safety.safety_tx_hook(self._lkas(0, 0, torque=91, request=True)))
+    self.assertTrue(self.safety.safety_tx_hook(self._lkas(0, 0, torque=1, request=True)))
+
+    self.safety.set_timer(30_001)
+    self.assertFalse(self.safety.safety_tx_hook(self._lkas(0, 1, torque=1, request=True)))
+
+  def test_forwarding_releases_when_camera_or_topology_conflicts(self):
+    self._engage_stock_cruise()
+    for count in (0, 1):
+      self.assertTrue(self.safety.safety_rx_hook(self._lkas(2, count)))
+    self.assertTrue(self.safety.safety_tx_hook(self._lkas(0, 0, torque=1, request=True)))
+    self.assertEqual(self.safety.safety_fwd_packet_hook(self._lkas(2, 2)), -1)
+    self.assertEqual(self.safety.safety_fwd_packet_hook(self._lkas(2, 2, torque=1, request=True)), 0)
+    self.assertTrue(self.safety.safety_rx_hook(self._lkas(2, 3, corrupt=True)))
+    self.assertEqual(self.safety.safety_fwd_packet_hook(self._lkas(2, 4)), 0)
+
+    for count in (4, 5):
+      self.assertTrue(self.safety.safety_rx_hook(self._lkas(2, count)))
+    self.assertTrue(self.safety.safety_tx_hook(self._lkas(0, 1, torque=1, request=True)))
+    self.assertTrue(self.safety.safety_rx_hook(common.make_msg(2, 0x421, 8)))
+    self.assertEqual(self.safety.safety_fwd_packet_hook(self._lkas(2, 6)), 0)
+    self.assertFalse(self.safety.safety_tx_hook(self._lkas(0, 2, torque=1, request=True)))
+    self.assertFalse(self.safety.safety_tx_hook(common.make_msg(0, 0x421, 8)))
 
 
 if __name__ == "__main__":

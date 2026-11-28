@@ -233,7 +233,7 @@ static void toyota_aol_observe(const CANPacket_t *msg) {
 }
 
 static void toyota_aol_configure(uint16_t param) {
-  const int aol_experience = (param == 73U && current_safety_param == 73U) ? (alternative_experience & ~ALT_EXP_TOYOTA_ENHANCED_BSM) : alternative_experience;
+  const int aol_experience = ((param == 73U) && (current_safety_param == 73U)) ? (alternative_experience & ~ALT_EXP_TOYOTA_ENHANCED_BSM) : alternative_experience;
   const bool aol_requested = (aol_experience == 32) || (aol_experience == 160) || (aol_experience == 288);
   toyota_aol_reset();
   toyota_camera_2aa_ambiguous = false;

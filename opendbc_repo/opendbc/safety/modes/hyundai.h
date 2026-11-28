@@ -386,7 +386,6 @@ static void hyundai_rx_hook(const CANPacket_t *msg) {
   }
 }
 
-static const uint16_t HYUNDAI_I30_2026_STOCK = 0x6200U;
 static bool hyundai_i30_2026 = false;
 static bool hyundai_i30_topology_conflict = false;
 static bool hyundai_i30_camera_idle = false;
@@ -417,13 +416,38 @@ static bool hyundai_i30_can_steer(uint32_t now) {
 }
 
 static bool hyundai_i30_fwd_packet(const CANPacket_t *msg) {
+  bool blocked;
   if (hyundai_i30_2026 && (msg->bus == 2U) && (msg->addr == 0x340U)) {
     const uint32_t now = microsecond_timer_get();
-    return hyundai_i30_camera_is_idle(msg) && hyundai_i30_host_steering &&
+    blocked = hyundai_i30_camera_is_idle(msg) && hyundai_i30_host_steering &&
            (safety_get_ts_elapsed(now, hyundai_i30_host_ts) <= 30000U) &&
            hyundai_i30_can_steer(now);
+  } else {
+    blocked = hyundai_daw_fwd(msg);
   }
-  return hyundai_daw_fwd(msg);
+  return blocked;
+}
+
+static bool hyundai_i30_steer_tx(const CANPacket_t *msg, int desired_torque, bool steer_req) {
+  bool tx = false;
+  const uint32_t now = microsecond_timer_get();
+  const TorqueSteeringLimits i30_limits = HYUNDAI_LIMITS(90, 2, 3);
+  if (!hyundai_i30_can_steer(now) || !hyundai_i30_lkas_checksum_valid(msg)) {
+    desired_torque_last = 0;
+    rt_torque_last = 0;
+    valid_steer_req_count = 0;
+    invalid_steer_req_count = 0;
+    ts_torque_check_last = now;
+    ts_steer_req_mismatch_last = now;
+    hyundai_i30_host_steering = false;
+  } else {
+    tx = !steer_torque_cmd_checks(desired_torque, steer_req, i30_limits);
+    if (tx) {
+      hyundai_i30_host_steering = true;
+      hyundai_i30_host_ts = now;
+    }
+  }
+  return tx;
 }
 
 static bool hyundai_tx_hook(const CANPacket_t *msg) {
@@ -567,6 +591,8 @@ static bool hyundai_tx_hook(const CANPacket_t *msg) {
     hyundai_blended_mirror_pending = false;
   }
 
+  const bool i30_lkas = (msg->addr == 0x340U) && !hyundai_blended_hda2 && hyundai_i30_2026;
+
   // LKA STEER: safety check
   if ((msg->addr == 0x340U) && !hyundai_blended_hda2) {
     int desired_torque = ((GET_BYTES_LE(msg, 0, 4) >> 16) & 0x7ffU) - 1024U;
@@ -576,30 +602,14 @@ static bool hyundai_tx_hook(const CANPacket_t *msg) {
                                         hyundai_alt_limits_2 ? HYUNDAI_STEERING_LIMITS_ALT_2 :
                                         hyundai_alt_limits ? HYUNDAI_STEERING_LIMITS_ALT : HYUNDAI_STEERING_LIMITS;
 
-    if (hyundai_i30_2026) {
-      const uint32_t now = microsecond_timer_get();
-      const TorqueSteeringLimits i30_limits = HYUNDAI_LIMITS(90, 2, 3);
-      if (!hyundai_i30_can_steer(now) || !hyundai_i30_lkas_checksum_valid(msg)) {
-        desired_torque_last = 0;
-        rt_torque_last = 0;
-        valid_steer_req_count = 0;
-        invalid_steer_req_count = 0;
-        ts_torque_check_last = now;
-        ts_steer_req_mismatch_last = now;
-        hyundai_i30_host_steering = false;
-        return false;
+    if (i30_lkas) {
+      tx = hyundai_i30_steer_tx(msg, desired_torque, steer_req);
+    } else {
+      if (steer_torque_cmd_checks(desired_torque, steer_req, limits) ||
+          (hyundai_kona_ev_label_cruise && ((desired_torque != 0) || steer_req) &&
+           (!hyundai_kona_ev_label_fresh() || !aol_rx_healthy()))) {
+        tx = false;
       }
-      tx = !steer_torque_cmd_checks(desired_torque, steer_req, i30_limits);
-      if (tx) {
-        hyundai_i30_host_steering = true;
-        hyundai_i30_host_ts = now;
-      }
-      return tx;
-    }
-    if (steer_torque_cmd_checks(desired_torque, steer_req, limits) ||
-        (hyundai_kona_ev_label_cruise && ((desired_torque != 0) || steer_req) &&
-         (!hyundai_kona_ev_label_fresh() || !aol_rx_healthy()))) {
-      tx = false;
     }
   }
 
@@ -645,15 +655,17 @@ static bool hyundai_tx_hook(const CANPacket_t *msg) {
     }
   }
 
-  tx &= blended_aol_integrity(msg);
-  if (hyundai_blended_alpha && hyundai_blended_hda2 && (msg->addr == 0x50U)) {
-    hyundai_blended_mirror_pending = tx && !relay_malfunction && !safety_rx_checks_invalid;
-    const uint32_t mirror_torque_raw = (((uint32_t)msg->data[6] & 0xFU) << 7U) | ((uint32_t)msg->data[5] >> 1U);
-    hyundai_blended_mirror_torque = (int)mirror_torque_raw - 1024;
-    hyundai_blended_mirror_request = GET_BIT(msg, 52U);
-    hyundai_blended_mirror_ts = microsecond_timer_get();
+  if (!i30_lkas) {
+    tx &= blended_aol_integrity(msg);
+    if (hyundai_blended_alpha && hyundai_blended_hda2 && (msg->addr == 0x50U)) {
+      hyundai_blended_mirror_pending = tx && !relay_malfunction && !safety_rx_checks_invalid;
+      const uint32_t mirror_torque_raw = (((uint32_t)msg->data[6] & 0xFU) << 7U) | ((uint32_t)msg->data[5] >> 1U);
+      hyundai_blended_mirror_torque = (int)mirror_torque_raw - 1024;
+      hyundai_blended_mirror_request = GET_BIT(msg, 52U);
+      hyundai_blended_mirror_ts = microsecond_timer_get();
+    }
+    blended_aol_tx(msg, tx);
   }
-  blended_aol_tx(msg, tx);
   return tx;
 }
 
@@ -715,6 +727,7 @@ static const CanMsg HYUNDAI_LONG_TX_MSGS[] = {
 #endif
 
 static safety_config hyundai_init(uint16_t safety_param) {
+  static const uint16_t HYUNDAI_I30_2026_STOCK = 0x6200U;
   hyundai_i30_2026 = safety_param == HYUNDAI_I30_2026_STOCK;
   hyundai_i30_topology_conflict = false;
   hyundai_i30_camera_idle = false;
@@ -1041,9 +1054,10 @@ static safety_config hyundai_init(uint16_t safety_param) {
       {0x340, 0, 8, .check_relay = true, .disable_static_blocking = true, .check_relay_immediately = true},
     };
     SET_TX_MSGS(i30_tx, ret);
-    return ret;
+  } else {
+    ret = hyundai_daw_configure(ret, false, !hyundai_blended_stock && !hyundai_blended_alpha);
   }
-  return hyundai_daw_configure(ret, false, !hyundai_blended_stock && !hyundai_blended_alpha);
+  return ret;
 }
 
 static safety_config hyundai_legacy_init(uint16_t param) {
