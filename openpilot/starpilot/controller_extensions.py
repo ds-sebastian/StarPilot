@@ -24,6 +24,11 @@ class ResumePlanInputs:
 def configure_controller(CI, params):
   cp = CI.CP
   controller = CI.CC
+  if controller is not None and cp.brand == "volkswagen":
+    from openpilot.starpilot.car.volkswagen.preferences import MUTE_CLUSTER_TAKEOVER, cluster_takeover_mute_supported
+    from openpilot.starpilot.saved_source import read_saved
+    controller.mute_cluster_takeover = (cluster_takeover_mute_supported(cp) and
+                                       read_saved(params, MUTE_CLUSTER_TAKEOVER, 8) == (b"1", True))
   from openpilot.starpilot.car.ford.cluster_preferences import FordClusterPreference, qualified as cluster_qualified
   if controller is not None and cluster_qualified(cp):
     controller.hands_free_cluster_input = FordClusterPreference(params)

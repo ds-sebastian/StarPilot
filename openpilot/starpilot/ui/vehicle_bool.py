@@ -1,6 +1,9 @@
 """Confirmation text for parked vehicle preferences."""
 
-VEHICLE_BOOL_KEYS = frozenset(("AlphaLongitudinalEnabled", "SubaruAvhStartup", "SubaruStopStartOff", "SubaruSNG", "SubaruRedneckCruise", "RedneckCruise",
+from openpilot.starpilot.car.volkswagen.preferences import MUTE_CLUSTER_TAKEOVER
+
+VEHICLE_BOOL_KEYS = frozenset((MUTE_CLUSTER_TAKEOVER, "AlphaLongitudinalEnabled", "SubaruAvhStartup", "SubaruStopStartOff", "SubaruSNG",
+                              "SubaruRedneckCruise", "RedneckCruise",
                               "GMPedalLongitudinal", "DisableOpenpilotLongitudinal", "LongPitch", "VoltSNG", "SNGHack", "GMAutoHold", "VoltOnePedalMode",
                               "TeslaCoopSteering", "TeslaAOLDisengageOnBrake", "TeslaSpeedSync",
                               "RemoteStartBootsComma", "HKGRemoteStartBootsComma", "IgnoreIgnitionLine", "TeslaWakeOnCAN"))
@@ -16,6 +19,9 @@ def confirmation_question(request):
   if request.key == "AlphaLongitudinalEnabled":
     return (f"{verb} Alpha Longitudinal after the next startup? StarPilot will request speed control instead of factory ACC. " +
             "Automatic Emergency Braking may be disabled; exact startup checks still apply.")
+  if request.key == MUTE_CLUSTER_TAKEOVER:
+    return ("Mute the cluster takeover chime and message after the next startup?" if request.value == "On" else
+            "Restore the cluster takeover chime and message after the next startup?")
   if request.key == "GMPedalLongitudinal":
     return (f"{verb} Pedal Speed Control after the next startup? " +
             "A compatible connected interceptor must be detected before StarPilot can control it.")

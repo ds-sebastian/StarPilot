@@ -51,6 +51,7 @@ from openpilot.starpilot.speed_limits.runtime_settings import (
 from openpilot.starpilot.aol.vehicle import policy_for as aol_policy_for
 from openpilot.starpilot.car.hyundai import software_cruise_settings as hyundai_software_cruise
 from openpilot.starpilot.car.subaru import software_cruise_settings as subaru_software_cruise
+from openpilot.starpilot.car.volkswagen.preferences import MUTE_CLUSTER_TAKEOVER, cluster_takeover_mute_supported
 from openpilot.starpilot.feature_capabilities import longitudinal_supported as feature_longitudinal_supported
 from openpilot.starpilot.lateral.torque_settings import DOCUMENT_KEY, LEGACY_KEYS
 from openpilot.starpilot.ui.torque_feature import TorqueFeature
@@ -397,6 +398,25 @@ class FeatureSettingsOwner:
               self.authority("parked_preferences") and request.expected in (None, b"0", b"1"))
     return commit_exact(self.params, key=request.key, max_bytes=128, raw=b"1" if request.value == "On" else b"0",
                         expected=request.expected, authorized=authorized, temp_prefix=".gm-stop-").verified
+
+  def _mqb_cluster_takeover_capability(self) -> tuple | None:
+    cp = self.vehicle_params()
+    if not cluster_takeover_mute_supported(cp):
+      return None
+    return (str(cp.carFingerprint), str(cp.carVin), int(cp.flags),
+            tuple((str(config.safetyModel), int(config.safetyParam)) for config in cp.safetyConfigs))
+
+  def _apply_mqb_cluster_takeover(self, request: FeatureSettingsRequest) -> bool:
+    if not request.confirmation or request.value not in ("Off", "On") or request.dependencies:
+      return False
+
+    def authorized() -> bool:
+      return (bool(request.vehicle_fingerprint) and self.vehicle_fingerprint() == request.vehicle_fingerprint and
+              request.capability is not None and request.capability == self._mqb_cluster_takeover_capability() and
+              self.authority("vehicle") and self.authority("parked_preferences") and request.expected in (None, b"0", b"1"))
+
+    return commit_exact(self.params, key=MUTE_CLUSTER_TAKEOVER, max_bytes=8, raw=b"1" if request.value == "On" else b"0",
+                        expected=request.expected, authorized=authorized, temp_prefix=".mqb-cluster-").verified
 
   def _jeep_hold_capability(self):
     from opendbc.car.chrysler.brake_hold import brake_hold_supported
@@ -875,7 +895,7 @@ class FeatureSettingsOwner:
               FeatureRow("", "Wheel Controls", "Assign steering-wheel buttons and cruise behavior", page=FeaturePage.WHEEL, available=True)]
       if (self._long_pitch_capability() is not None or self._bolt_disable_capability() is not None or
           self._auto_hold_capability() is not None or self._toyota_sng_capability() is not None or self._jeep_hold_capability() is not None or
-          self._pedal_setup_capability() is not None or
+          self._mqb_cluster_takeover_capability() is not None or self._pedal_setup_capability() is not None or
           self.subaru_smoothing.capability() is not None or
           self._subaru_avh_capability() is not None or self._subaru_startup_capability() is not None or self._subaru_sng_capability() is not None or
           hyundai_software_cruise.capability(self) is not None or subaru_software_cruise.capability(self) is not None or
@@ -920,6 +940,13 @@ class FeatureSettingsOwner:
                              configurable and parked and self.authority("parked_preferences"),
                              "Automatic resume for Toyota/Lexus vehicles without factory stop-and-go. Applies after the next startup.")
         rows.append(replace(row, available=row.available and self._readable("SNGHack"), capability=sng_capability))
+      mqb_cluster = self._mqb_cluster_takeover_capability()
+      if mqb_cluster is not None:
+        row = self._bool_row(MUTE_CLUSTER_TAKEOVER, "Mute Cluster Takeover Chime",
+                             configurable and parked and self.authority("vehicle") and self.authority("parked_preferences"),
+                             "Hides StarPilot’s takeover message and chime in the instrument cluster. " +
+                             "StarPilot’s device alerts stay active. Applies after the next startup.")
+        rows.append(replace(row, available=row.available and self._readable(MUTE_CLUSTER_TAKEOVER), capability=mqb_cluster))
       jeep_capability = self._jeep_hold_capability()
       if jeep_capability is not None:
         row = self._bool_row("JeepBrakeHold", "Jeep Brake Hold",
@@ -1512,6 +1539,8 @@ class FeatureSettingsOwner:
       return self._apply_gm_stop(request)
     if key == "LongPitch":
       return self._apply_long_pitch(request)
+    if key == MUTE_CLUSTER_TAKEOVER:
+      return self._apply_mqb_cluster_takeover(request)
     if key == "JeepBrakeHold":
       return self._apply_jeep_hold(request)
     if key == "AlphaLongitudinalEnabled":

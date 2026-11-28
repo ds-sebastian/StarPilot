@@ -9,6 +9,7 @@ from openpilot.starpilot.ui.feature_settings_state import SLC_OFFSET_KEYS
 from openpilot.starpilot.longitudinal.enhanced_stop_hold import KEY as HOLD_KEY, DESCRIPTION as HOLD_DESCRIPTION
 
 DESCRIPTIONS = {
+  'VolkswagenMuteClusterTakeover': 'Hides StarPilot’s takeover message and chime in the instrument cluster. StarPilot’s device alerts stay active.',
   HOLD_KEY: HOLD_DESCRIPTION,
   'GreenLightAlert': 'Chimes once when the model’s traffic-light stop prediction clears while you remain stopped.',
   'LeadDepartingAlert': 'Chimes once when the tracked vehicle ahead starts moving while you remain stopped.',
@@ -200,6 +201,7 @@ DESCRIPTIONS = {
 
 # These are initialization explanations, not a second defaults table.
 INITIALIZATION = {
+  'VolkswagenMuteClusterTakeover': 'Applies after the next startup.',
   'StarPortAllowHevc': 'Applies from the next StarPort connection.',
   'StarPortKeyframeTest': 'Applies from the next StarPort connection.',
   'StarPortTallHevc': 'Applies from the next StarPort connection.',

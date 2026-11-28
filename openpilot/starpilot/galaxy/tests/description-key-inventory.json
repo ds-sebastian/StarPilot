@@ -144,7 +144,7 @@
   "UseStarPilotLongitudinalPlanner",
   "UseVOACC",
   "VoltOnePedalMode",
-  "VoltSNG",
+  "VolkswagenMuteClusterTakeover","VoltSNG",
   "WarningImmediateVolume",
   "WarningSoftVolume",
   "conditional:button:DistanceButtonControl",

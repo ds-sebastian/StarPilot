@@ -42,6 +42,8 @@ class CarController(CarControllerBase):
     self.CCP = CarControllerParams(CP)
     self.CAN = CanBus(CP)
     self.packer_pt = CANPacker(dbc_names[Bus.pt])
+    self.mqb_hud = dbc_names[Bus.pt] == "vw_mqb"
+    self.mute_cluster_takeover = False
     self.aeb_available = not CP.flags & VolkswagenFlags.PQ
 
     if CP.flags & VolkswagenFlags.MEB:
@@ -177,7 +179,8 @@ class CarController(CarControllerBase):
       mqb_aol_hud = stock_aol_qualified(self.CP, marked_only=True) or long_aol_qualified(self.CP, marked_only=True)
       if not mqb_aol_hud or (CC.latActive and self.apply_torque_last != 0):
         hud_alert = 0
-        if hud_control.visualAlert in (VisualAlert.steerRequired, VisualAlert.ldw):
+        if (hud_control.visualAlert in (VisualAlert.steerRequired, VisualAlert.ldw) and
+            not (self.mqb_hud and self.mute_cluster_takeover)):
           hud_alert = self.CCP.LDW_MESSAGES["laneAssistTakeOver"]
         can_sends.append(self.CCS.create_lka_hud_control(self.packer_pt, self.CAN.pt, CS.ldw_stock_values, CC.latActive,
                                                          CS.out.steeringPressed, hud_alert, hud_control))
