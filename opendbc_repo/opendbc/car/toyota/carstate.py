@@ -212,6 +212,11 @@ class CarState(CarStateBase):
         self.acc_type = cp_acc.vl["ACC_CONTROL"]["ACC_TYPE"]
       ret.stockFcw = bool(cp_acc.vl["PCS_HUD"]["FCW"])
 
+    # ARS510 radar-ACC cars: the radar also reports its PCS alarm on its own bus, which keeps running when openpilot disables the radar
+    if Bus.radar in can_parsers and self.CP.flags & ToyotaFlags.ARS510_RADAR:
+      pcs = can_parsers[Bus.radar].vl["PCS_STATE"]
+      ret.stockFcw = ret.stockFcw or bool(pcs["PCS_ALARM"] and pcs["POWER_UP"] == 0)
+
     # some TSS2 cars have low speed lockout permanently set, so ignore on those cars
     # these cars are identified by an ACC_TYPE value of 2.
     # TODO: it is possible to avoid the lockout and gain stop and go if you
@@ -413,8 +418,12 @@ class CarState(CarStateBase):
     if enhanced_bsm.configured(CP):
       pt_parser = enhanced_bsm.BsmCANParser
       pt_messages.append(("BSM", math.nan))
-    return {
+    parsers = {
       Bus.pt: pt_parser(DBC[CP.carFingerprint][Bus.pt], pt_messages, 0, **({"stock_word": CP.safetyConfigs[0].safetyParam} if stock else
         {"alternate_main": alternate_sdsu_main} if legacy_advert else {})),
       Bus.cam: CANParser(dbc_name, cam_messages, 2),
     }
+    if CP.flags & ToyotaFlags.ARS510_RADAR:
+      # not required (nan), so a quiet radar bus never makes CAN invalid
+      parsers[Bus.radar] = CANParser("toyota_tss2_ars510", [("PCS_STATE", math.nan)], 1)
+    return parsers

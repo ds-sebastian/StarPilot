@@ -97,3 +97,20 @@ def test_rav4_startup_wait_does_not_stall_live_tracks():
   outputs = [radar.update([(1_000_000_000 + i * 10_000_000, [])]) for i in range(700)]
   assert sum(r is not None for r in outputs) == 140
   assert all(not r.points and not r.errors.radarUnavailableTemporary for r in outputs if r is not None)
+
+
+@pytest.mark.parametrize('candidate', sorted(ARS510_RADAR_CAR))
+def test_pcs_alarm_sets_stock_fcw_on_ars510_cars(candidate):
+  from opendbc.can import CANParser
+  from opendbc.car import Bus
+  from opendbc.car.toyota.carstate import CarState
+  cp = CarInterface.get_params(candidate, gen_empty_fingerprint(), [], True, False, False)
+  radar = CarState.get_can_parsers(cp)[Bus.radar]
+  assert isinstance(radar, CANParser) and radar.bus == 1
+  packer = CANPacker(RADAR_DBC)
+  seen = []
+  for i, values in enumerate(({"PCS_ALARM": 1, "POWER_UP": 255}, {"PCS_ALARM": 0}, {"PCS_ALARM": 1})):
+    radar.update([(1_000_000_000 + i * 100_000_000, [packer.make_can_msg("PCS_STATE", 1, values)])])
+    pcs = radar.vl["PCS_STATE"]
+    seen.append(bool(pcs["PCS_ALARM"] and pcs["POWER_UP"] == 0))
+  assert seen == [False, False, True] and radar.can_valid and not radar.bus_timeout
