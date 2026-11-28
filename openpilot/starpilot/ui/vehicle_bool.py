@@ -3,7 +3,7 @@
 from openpilot.starpilot.car.volkswagen.preferences import MUTE_CLUSTER_TAKEOVER
 
 VEHICLE_BOOL_KEYS = frozenset((MUTE_CLUSTER_TAKEOVER, "AlphaLongitudinalEnabled", "SubaruAvhStartup", "SubaruStopStartOff", "SubaruSNG",
-                              "SubaruRedneckCruise", "RedneckCruise",
+                              "SubaruRedneckCruise", "RedneckCruise", "ToyotaEnhancedBsm",
                               "GMPedalLongitudinal", "DisableOpenpilotLongitudinal", "LongPitch", "VoltSNG", "SNGHack", "GMAutoHold", "VoltOnePedalMode",
                               "TeslaCoopSteering", "TeslaAOLDisengageOnBrake", "TeslaSpeedSync",
                               "RemoteStartBootsComma", "HKGRemoteStartBootsComma", "IgnoreIgnitionLine", "TeslaWakeOnCAN"))
@@ -38,6 +38,8 @@ def confirmation_question(request):
     return f"{verb} Redneck Cruise after the next startup? Factory cruise keeps control of the pedals."
   if request.key == "SubaruRedneckCruise":
     return f"{verb} software cruise after the next startup? Stock ACC keeps pedal control."
+  if request.key == "ToyotaEnhancedBsm":
+    return f"{verb} Enhanced Blind Spot Monitoring after the next startup?"
   if request.key == "SNGHack":
     return f"{verb} Toyota stop-and-go assistance after the next startup?"
   if request.key == "VoltSNG":

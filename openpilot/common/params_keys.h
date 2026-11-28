@@ -24,6 +24,7 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"NostalgiaMode", {PERSISTENT, BOOL, "0"}},
     {"SNGHack", {PERSISTENT, BOOL, "0"}},
     {"ToyotaAutoHold", {PERSISTENT, BOOL, "0"}},
+    {"ToyotaEnhancedBsm", {PERSISTENT, BOOL, "0"}},
     {"JeepBrakeHold", {PERSISTENT, BOOL, "0"}},
     {"ToyotaRadarMode", {PERSISTENT, INT, "0"}},
     {"RemoteStartBootsComma", {PERSISTENT, BOOL, "0"}},

@@ -357,6 +357,7 @@ extern CurvatureSteeringState curvature_state;
 #define ALT_EXP_ALLOW_AEB 16
 #define ALT_EXP_TOYOTA_AUTO_HOLD 128
 #define ALT_EXP_TOYOTA_AEB_HOLD 256
+#define ALT_EXP_TOYOTA_ENHANCED_BSM 512
 
 extern int alternative_experience;
 

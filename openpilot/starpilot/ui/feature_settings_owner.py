@@ -459,6 +459,25 @@ class FeatureSettingsOwner:
                         raw=b"1" if request.value == "On" else b"0", authorized=authorized,
                         temp_prefix=".toyota-sng-").verified
 
+  def _enhanced_bsm_capability(self) -> tuple | None:
+    from opendbc.car.toyota.enhanced_bsm import supported
+    cp = self.vehicle_params()
+    if cp is None or not supported(cp):
+      return None
+    return (str(cp.carFingerprint), str(cp.carVin), int(cp.flags), int(cp.safetyConfigs[0].safetyParam))
+
+  def _apply_enhanced_bsm(self, request: FeatureSettingsRequest) -> bool:
+    if not request.confirmation or request.value not in ("Off", "On") or request.dependencies:
+      return False
+
+    def authorized() -> bool:
+      return (bool(request.vehicle_fingerprint) and self.vehicle_fingerprint() == request.vehicle_fingerprint and
+              request.capability is not None and request.capability == self._enhanced_bsm_capability() and
+              self.authority("vehicle") and self.authority("parked_preferences") and request.expected in (None, b"0", b"1"))
+
+    return commit_exact(self.params, key="ToyotaEnhancedBsm", max_bytes=8, raw=b"1" if request.value == "On" else b"0",
+                        expected=request.expected, authorized=authorized, temp_prefix=".toyota-bsm-").verified
+
   def _auto_hold_capability(self) -> tuple | None:
     from opendbc.car.toyota.interface import toyota_auto_hold_supported
     cp = self.vehicle_params()
@@ -894,7 +913,8 @@ class FeatureSettingsOwner:
                          page=FeaturePage.DEVELOPER_LONGITUDINAL, available=True),
               FeatureRow("", "Wheel Controls", "Assign steering-wheel buttons and cruise behavior", page=FeaturePage.WHEEL, available=True)]
       if (self._long_pitch_capability() is not None or self._bolt_disable_capability() is not None or
-          self._auto_hold_capability() is not None or self._toyota_sng_capability() is not None or self._jeep_hold_capability() is not None or
+          self._auto_hold_capability() is not None or self._enhanced_bsm_capability() is not None or
+          self._toyota_sng_capability() is not None or self._jeep_hold_capability() is not None or
           self._mqb_cluster_takeover_capability() is not None or self._pedal_setup_capability() is not None or
           self.subaru_smoothing.capability() is not None or
           self._subaru_avh_capability() is not None or self._subaru_startup_capability() is not None or self._subaru_sng_capability() is not None or
@@ -934,6 +954,12 @@ class FeatureSettingsOwner:
                            "Hold the brake for over one second at a complete stop with cruise main on and cruise disengaged. " +
                            "Holds until you press the gas; normal cruise stop-and-go is unchanged. Applies after the next startup.")
       rows.extend([replace(row, available=row.available and self._readable("ToyotaAutoHold"), capability=capability)] if capability is not None else [])
+      bsm_capability = self._enhanced_bsm_capability()
+      if bsm_capability is not None:
+        row = self._bool_row("ToyotaEnhancedBsm", "Enhanced Blind Spot Monitoring",
+                             configurable and parked and self.authority("vehicle") and self.authority("parked_preferences"),
+                             "Read compatible Prius blind-spot sensors while driving. Applies after the next startup.")
+        rows.append(replace(row, available=row.available and self._readable("ToyotaEnhancedBsm"), capability=bsm_capability))
       sng_capability = self._toyota_sng_capability()
       if sng_capability is not None:
         row = self._bool_row("SNGHack", "Stop-and-Go Hack",
@@ -1547,6 +1573,8 @@ class FeatureSettingsOwner:
       return self._apply_alpha_long(request)
     if key == "SNGHack":
       return self._apply_toyota_sng(request)
+    if key == "ToyotaEnhancedBsm":
+      return self._apply_enhanced_bsm(request)
     if key == "ToyotaAutoHold":
       return self._apply_auto_hold(request)
     if key == PLANNER_SELECTION_KEY:

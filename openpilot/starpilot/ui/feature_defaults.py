@@ -19,6 +19,7 @@ BOOL_DEFAULTS = {
   "DriveModeProfiles": False, "DriveModeAcceleration": True, "DriveModeDeceleration": True,
   "SubaruAvhStartup": False,
   "SubaruStopStartOff": False,
+  "ToyotaEnhancedBsm": False,
   "SubaruSNG": False,
   "SubaruRedneckCruise": False,
   "RedneckCruise": False,

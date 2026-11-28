@@ -6,6 +6,7 @@ from opendbc.car.toyota import (
   stock_aol, prius_longitudinal, dsu_bypass, pedal_composite, pedal, legacy_sdsu, advert_filter, legacy_advert_filter, prius_sdsu, prius_advert_filter
 )
 from opendbc.car.toyota.lexus_is import LexusIsCANParser
+from opendbc.car.toyota import enhanced_bsm
 from opendbc.car import Bus, DT_CTRL, create_button_events, structs
 from opendbc.car.common.conversions import Conversions as CV
 from opendbc.car.common.filter_simple import FirstOrderFilter
@@ -39,6 +40,7 @@ def has_optional_prius_gap_button(CP):
 class CarState(CarStateBase):
   def __init__(self, CP):
     super().__init__(CP)
+    self.factory_bsm = False
     can_define = CANDefine(DBC[CP.carFingerprint][Bus.pt])
     original_prius = prius_sdsu.configured(CP) or prius_advert_filter.configured(CP)
     self.eps_torque_scale = ((CP.safetyConfigs[0].safetyParam & 0xFF) / 100. if prius_advert_filter.configured(CP) else
@@ -229,9 +231,13 @@ class CarState(CarStateBase):
     ret.genericToggle = bool(cp.vl["LIGHT_STALK"]["AUTO_HIGH_BEAM"])
     ret.espDisabled = cp.vl["ESP_CONTROL"]["TC_DISABLED"] != 0
 
-    if self.CP.flags & ToyotaFlags.HAS_BSM:
+    self.factory_bsm = isinstance(cp, enhanced_bsm.BsmCANParser) and cp.factory_bsm
+    if self.CP.flags & ToyotaFlags.HAS_BSM or self.factory_bsm:
       ret.leftBlindspot = (cp.vl["BSM"]["L_ADJACENT"] == 1) or (cp.vl["BSM"]["L_APPROACHING"] == 1)
       ret.rightBlindspot = (cp.vl["BSM"]["R_ADJACENT"] == 1) or (cp.vl["BSM"]["R_APPROACHING"] == 1)
+    elif isinstance(cp, enhanced_bsm.BsmCANParser) and ret.vEgo > 6.0:
+      ret.leftBlindspot = cp.occupied(enhanced_bsm.SIDES[0])
+      ret.rightBlindspot = cp.occupied(enhanced_bsm.SIDES[1])
 
     if self.CP.carFingerprint != CAR.TOYOTA_PRIUS_V:
       self.lkas_hud = copy.copy(cp_cam.vl["LKAS_HUD"])
@@ -404,6 +410,9 @@ class CarState(CarStateBase):
                  LexusIsCANParser if CP.carFingerprint == CAR.LEXUS_IS else pedal.PedalCANParser if pedal.configured(CP) else
                  advert_filter.AdvertFilterCANParser if CP.flags & ToyotaFlags.FILTER_BUTTONS or advert_filter.configured(CP) else
                  Rav4hCANParser if rav4h_filter_configured(CP) else CANParser)
+    if enhanced_bsm.configured(CP):
+      pt_parser = enhanced_bsm.BsmCANParser
+      pt_messages.append(("BSM", math.nan))
     return {
       Bus.pt: pt_parser(DBC[CP.carFingerprint][Bus.pt], pt_messages, 0, **({"stock_word": CP.safetyConfigs[0].safetyParam} if stock else
         {"alternate_main": alternate_sdsu_main} if legacy_advert else {})),

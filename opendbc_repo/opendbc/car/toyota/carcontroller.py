@@ -1,6 +1,7 @@
 import math
 import numpy as np
 from opendbc.car import ACCEL_MAX_TAKEOFF
+from opendbc.car.toyota import enhanced_bsm
 from opendbc.car import Bus, make_tester_present_msg, rate_limit, structs, ACCELERATION_DUE_TO_GRAVITY, DT_CTRL
 from opendbc.car.lateral import apply_meas_steer_torque_limits, apply_std_steer_angle_limits, common_fault_avoidance
 from opendbc.car.carlog import carlog
@@ -117,6 +118,7 @@ class CarController(CarControllerBase):
     self.secoc_lta_message_counter = 0
     self.secoc_acc_message_counter = 0
     self.secoc_prev_reset_counter = 0
+    self.bsm_poller = enhanced_bsm.BsmPoller() if enhanced_bsm.configured(CP) else None
     self.brake_hold_active = False
     self._brake_hold_counter = 0
 
@@ -528,6 +530,9 @@ class CarController(CarControllerBase):
     # keep radar disabled
     if self.frame % 20 == 0 and self.CP.flags & ToyotaFlags.DISABLE_RADAR.value:
       can_sends.append(make_tester_present_msg(0x750, 0, 0xF))
+
+    if self.bsm_poller is not None:
+      can_sends.extend(self.bsm_poller.update(CS.out, self.frame, factory_bsm=CS.factory_bsm))
 
     door_command = self.door_locks.update(CS.out)
     if door_command is not None:

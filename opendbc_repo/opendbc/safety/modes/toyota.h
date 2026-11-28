@@ -67,6 +67,10 @@ static bool toyota_alt_brake = false;
 static bool toyota_stock_longitudinal = false;
 static bool toyota_lta = false;
 static bool toyota_radar_diagnostics_allowed = false;
+static bool toyota_enhanced_bsm = false;
+static bool toyota_factory_bsm_seen = false;
+static uint32_t toyota_bsm_tx_ts[2] = {0U};
+static bool toyota_bsm_session[2] = {false};
 static int toyota_dbc_eps_torque_factor = 100;   // conversion factor for STEER_TORQUE_EPS in %: see dbc file
 
 static bool toyota_hold_main_on = false;
@@ -219,6 +223,9 @@ static void toyota_hold_observe(const CANPacket_t *msg) {
 }
 
 static void toyota_optional_rx_hook(const CANPacket_t *msg) {
+  if (toyota_enhanced_bsm && msg_matches(msg, 0x3F6U, 0U) && (GET_LEN(msg) == 8U)) {
+    toyota_factory_bsm_seen = true;
+  }
   // Only bus0 pedal RX belongs to the required catalog. A CRC-valid camera
   // copy must neither invalidate its parent nor refresh the primary lease.
   const bool camera_copy = toyota_pedal && msg_matches(msg, 0x201U, 2U) && (GET_LEN(msg) == 6U) &&
@@ -605,6 +612,25 @@ static bool toyota_tx_hook(const CANPacket_t *msg) {
             !vehicle_moving && !gas_pressed && !safety_rx_checks_invalid && !relay_malfunction &&
             (safety_get_ts_elapsed(now, toyota_hold_speed_ts) <= 100000U) &&
             (safety_get_ts_elapsed(now, toyota_hold_gas_ts) <= 100000U);
+    } else if (toyota_enhanced_bsm && ((msg->data[0] == 0x41U) || (msg->data[0] == 0x42U))) {
+      const unsigned int side = msg->data[0] - 0x41U;
+      const uint64_t request = payload & ~0xFFULL;
+      const bool stop_polling = request == 0x0000000001100200ULL;
+      const bool start = request == 0x0000000060100200ULL;
+      const bool poll = request == 0x0000000069210200ULL;
+      const uint32_t now = microsecond_timer_get();
+      const bool wheel_speed_current = toyota_hold_speed_seen &&
+                                      (safety_get_ts_elapsed(now, toyota_hold_speed_ts) <= 100000U);
+      const bool ready = toyota_rx_ready(now) && wheel_speed_current && !safety_rx_checks_invalid && !relay_malfunction;
+      const bool session = toyota_bsm_session[side];
+      const bool paced = safety_get_ts_elapsed(now, toyota_bsm_tx_ts[side]) >= 40000U;
+      const bool enable = start && !session && (vehicle_speed.values[0] > (7 * VEHICLE_SPEED_FACTOR));
+      const bool poll_allowed = poll && session && paced && (vehicle_speed.values[0] > (6 * VEHICLE_SPEED_FACTOR));
+      tx &= (stop_polling && session) || (!toyota_factory_bsm_seen && ready && (enable || poll_allowed));
+      if (tx) {
+        toyota_bsm_session[side] = !stop_polling;
+        toyota_bsm_tx_ts[side] = now;
+      }
     } else {
       // Preserve the original radar-only tester-present allowance and configuration scope.
       tx &= toyota_radar_diagnostics_allowed && (payload == 0x00000000003E020FULL);
@@ -619,6 +645,12 @@ static bool toyota_tx_hook(const CANPacket_t *msg) {
 }
 
 static safety_config toyota_init(uint16_t param) {
+  toyota_factory_bsm_seen = false;
+  toyota_enhanced_bsm = (param == 73U) && ((alternative_experience & ALT_EXP_TOYOTA_ENHANCED_BSM) != 0);
+  for (unsigned int i = 0U; i < 2U; i++) {
+    toyota_bsm_tx_ts[i] = 0U;
+    toyota_bsm_session[i] = false;
+  }
   const uint16_t parent_param = toyota_pedal_parent_param(param);
   toyota_factory_stock = toyota_factory_stock_param(parent_param);
   toyota_factory_eps5 = toyota_factory_stock && (parent_param != 0x6242U) && (parent_param != 0x6249U);

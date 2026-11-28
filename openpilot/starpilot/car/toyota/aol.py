@@ -164,7 +164,12 @@ def qualified(cp, *, marked_only=False):
   allowed_experience = (32 | hold_permission,) if hold else (32,)
   if not marked_only:
     allowed_experience += (0, hold_permission) if hold else (0,)
-  if (cp.alternativeExperience not in allowed_experience or
+  from opendbc.car.toyota import enhanced_bsm
+  from opendbc.safety import ALTERNATIVE_EXPERIENCE
+  experience = cp.alternativeExperience
+  if enhanced_bsm.configured(cp):
+    experience &= ~ALTERNATIVE_EXPERIENCE.TOYOTA_ENHANCED_BSM
+  if (experience not in allowed_experience or
       hold and not toyota_auto_hold_supported(cp)):
     return False
   required_flags = ToyotaFlags.TSS2 | ToyotaFlags.NO_DSU | ToyotaFlags.RAISED_ACCEL_LIMIT

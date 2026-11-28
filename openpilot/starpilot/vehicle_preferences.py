@@ -32,6 +32,7 @@ def toyota_disable_long_supported(cp) -> bool:
 class VehicleStartupPreferences:
   controller_selection: bytes | None = field(default=None, kw_only=True)
   toyota_auto_hold: bool = False
+  toyota_enhanced_bsm: bool = field(default=False, kw_only=True)
   toyota_sng: bool = field(default=False, kw_only=True)
   jeep_brake_hold: bool = field(default=False, kw_only=True)
   turn_assist: bool = False
@@ -141,6 +142,8 @@ class VehicleStartupPreferences:
                    read_saved(params, "SubaruRedneckCruise", 8) == (b"1", True)),
                ford_bluepilot=tuple(ford_bluepilot(params, enabled=enabled).items()), tesla_aol=tesla_aol, tesla_screen=screen,
                tesla_screen_brake=screen_brake, tesla_cooperative=cooperative, tesla_speed_sync=speed_sync, toyota_auto_hold=toyota,
+               toyota_enhanced_bsm=bool(enabled and readable and safe in (None, b"0") and
+                                        read_saved(params, "ToyotaEnhancedBsm", 8) == (b"1", True)),
                toyota_sng=bool(enabled and readable and safe in (None, b"0") and
                                read_saved(params, "SNGHack", 8) == (b"1", True)), jeep_brake_hold=jeep_hold,
                gm_longitudinal_tune=selected_tune(params, enabled=enabled),
@@ -255,6 +258,8 @@ class VehicleStartupPreferences:
       apply_toyota_auto_hold(cp, self.toyota_auto_hold)
       from opendbc.car.toyota.ars510_preferences import configure_radar
       configure_radar(cp)
+      from opendbc.car.toyota import enhanced_bsm
+      enhanced_bsm.prepare(cp, self.toyota_enhanced_bsm)
     from opendbc.bluepilot_lateral.hosts.starpilot.safety_param import init_ford_safety_param_starpilot
     init_ford_safety_param_starpilot(cp, dict(self.ford_bluepilot))
     from openpilot.starpilot.lateral.controller_selection import prepare_controller
@@ -305,6 +310,8 @@ class VehicleStartupPreferences:
       apply_toyota_auto_hold(cp, self.toyota_auto_hold and admitted)
       from opendbc.car.toyota.ars510_preferences import configure_radar
       configure_radar(cp)
+      from opendbc.car.toyota import enhanced_bsm
+      enhanced_bsm.prepare(cp, self.toyota_enhanced_bsm)
 
     prepare_smoothing(cp, self.subaru_smoothing)
 
