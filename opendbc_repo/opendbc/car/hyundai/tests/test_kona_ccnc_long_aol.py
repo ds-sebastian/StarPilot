@@ -251,7 +251,7 @@ def test_kona_handoff_cruise_main_display_follows_star_long_engagement(handoff, 
   for frame in range(5):
     ci.apply(structs.CarControl().as_reader(), 950_000_000 + frame * 10_000_000)
   ci.CS.ccnc_161_ts_ns = ci.CS.ccnc_162_ts_ns = 1_000_000_000
-  ci.CS.ccnc_161 = {'SETSPEED_HUD': 3, 'SETSPEED_SPEED': 20, 'DISTANCE_SPACING': 1}
+  ci.CS.ccnc_161 = {'SETSPEED_HUD': 3, 'SETSPEED_SPEED': 20, 'DISTANCE_SPACING': 1, 'HDA_ICON': 3, 'TARGET': 1}
   ci.CS.ccnc_162 = {'FAULT_LSS': 2, 'FAULT_FCA': 1}
   command = structs.CarControl(enabled=enabled, latActive=True, longActive=enabled)
   _, packets = ci.apply(command.as_reader(), 1_000_000_000)
@@ -266,7 +266,8 @@ def test_kona_handoff_cruise_main_display_follows_star_long_engagement(handoff, 
   assert display['SETSPEED_HUD'] == hud_mode
   assert display['LFA_ICON'] == (0 if handoff else 2)
   if handoff:
-    assert display['SETSPEED'] == hud_mode
+    assert display['SETSPEED'] == display['HDA_ICON'] == hud_mode
+    assert display['TARGET'] == int(hud_mode == 2)
   if hud_mode == 0:
     assert display['DISTANCE'] == 0
     assert display['SETSPEED_SPEED'] == 255
@@ -279,6 +280,7 @@ def test_kona_handoff_cruise_main_display_follows_star_long_engagement(handoff, 
 
 
 @pytest.mark.parametrize('speed,accel,previous,standstill,lead,word,cap', [
+  (0.29, -0.27, -0.26, False, False, 0x1C0C, 1.2),
   (0.3, -0.27, -0.26, False, False, 0x1C0C, 1.2),
   (2.2, -0.67, -0.66, False, False, 0x1C0C, 1.2),
   (2.4, -1.13, -1.12, False, False, 0x1C0C, 1.2),
@@ -311,12 +313,19 @@ def test_kona_final_braking_jerk(speed, accel, previous, standstill, lead, word,
   values = parser.vl['SCC_CONTROL']
   assert values['aReqValue'] == pytest.approx(accel)
   assert values['aReqRaw'] == pytest.approx(accel)
-  assert values['ACCMode'] == values['StopReq'] == 1
+  assert values['ACCMode'] == 1
+  assert values['StopReq'] == int(word != 0x1C0C or standstill or lead or speed < .3)
   assert values['JerkLowerLimit'] == pytest.approx(cap)
 
 
-@pytest.mark.parametrize('eps,age_ms,expected', [(0, 10, 0), (1, 10, 2), (1, 51, 0), (2, 10, 0)])
-def test_kona_handoff_steering_icon_needs_current_eps_feedback(eps, age_ms, expected, monkeypatch):
+@pytest.mark.parametrize('eps,age_ms,active,stopped,armed,fault,expected', [
+  (0, 10, True, False, True, False, 0), (1, 10, True, False, True, False, 2),
+  (1, 51, True, False, True, False, 0), (2, 10, True, False, True, False, 0),
+  (0, 10, False, True, True, False, 1), (0, 10, False, True, False, False, 0),
+  (0, 51, False, True, True, False, 0), (0, 10, False, False, True, False, 0),
+  (0, 10, False, True, True, True, 0),
+])
+def test_kona_handoff_steering_icon_needs_current_eps_feedback(eps, age_ms, active, stopped, armed, fault, expected, monkeypatch):
   import time
 
   from opendbc.can import CANParser
@@ -326,7 +335,8 @@ def test_kona_handoff_steering_icon_needs_current_eps_feedback(eps, age_ms, expe
   cp.safetyConfigs[0].safetyParam = 0x1C0C
   cp.alternativeExperience = 32
   ci = CarInterface(cp)
-  ci.CS.out = structs.CarState(canValid=True, cruiseState={'available': True}).as_reader()
+  ci.CS.out = structs.CarState(canValid=True, standstill=stopped, steerFaultTemporary=fault, cruiseState={'available': True}).as_reader()
+  ci.CS.kona_lateral_armed = armed
   now = 2_000_000_000
   monkeypatch.setattr(time, 'CLOCK_BOOTTIME', time.CLOCK_MONOTONIC, raising=False)
   monkeypatch.setattr(time, 'clock_gettime_ns', lambda _: now)
@@ -338,7 +348,7 @@ def test_kona_handoff_steering_icon_needs_current_eps_feedback(eps, age_ms, expe
   ci.CS.ccnc_162 = {'FAULT_LSS': 2}
   mdps = ci.CC.packer.make_can_msg('MDPS', 0, {'MDPS_LkaToiActvSta': eps})
   ci.CS.stock_lfa_status.update([(now - age_ms * 1_000_000, [mdps])])
-  _, packets = ci.apply(structs.CarControl(latActive=True).as_reader(), now)
+  _, packets = ci.apply(structs.CarControl(latActive=active).as_reader(), now)
   parser = CANParser('hyundai_canfd_generated', [('CCNC_0x161', 0), ('CCNC_0x162', 0)], 0)
   assert {0x161, 0x162} <= parser.update((now, packets))
   assert parser.vl['CCNC_0x161']['LFA_ICON'] == expected

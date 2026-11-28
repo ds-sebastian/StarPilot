@@ -162,9 +162,11 @@ class CANFDLfaStatus:
   def _ownership_warning(body):
     return CANFDLfaStatus._system_fail(body) and not body[6] & 0x30
 
+  def steering_feedback_current(self, now_ns):
+    return self.eps_healthy and 0 < self.eps_observed_ns <= now_ns <= self.eps_observed_ns + MAX_AGE_NS
+
   def steering_active_current(self, now_ns):
-    return (self.eps_active and self.eps_healthy and
-            0 < self.eps_observed_ns <= now_ns <= self.eps_observed_ns + MAX_AGE_NS)
+    return self.eps_active and self.steering_feedback_current(now_ns)
 
   def sportage_legacy_display(self, cp, now_ns, *, healthy):
     if not (healthy and cp.carFingerprint == CAR.KIA_SPORTAGE_5TH_GEN and cp.openpilotLongitudinalControl and

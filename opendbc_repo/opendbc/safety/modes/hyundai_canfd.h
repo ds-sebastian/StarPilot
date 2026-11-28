@@ -557,7 +557,28 @@ static void hyundai_kona_camera_rx(const CANPacket_t *msg) {
   }
 }
 
-static void hyundai_kona_mdps_output(const CANPacket_t *msg, CANPacket_t *output, bool *replaced) {
+static uint8_t hyundai_kona_button_checksum(const CANPacket_t *msg) {
+  uint8_t crc = 0U;
+  for (int i = 1; i < 8; i++) {
+    crc = crc8_update(crc, msg->data[i], 0x1DU);
+  }
+  return crc ^ 0x97U;
+}
+
+static bool hyundai_kona_button_forward_blocked(const CANPacket_t *msg) {
+  return hyundai_kona_ccnc_feedback && (msg->addr == 0x1CFU) && (msg->bus == 0U) &&
+         (msg->extended || (GET_LEN(msg) != 8U) ||
+          (((msg->data[2] & 0x28U) != 0U) && (msg->data[0] != hyundai_kona_button_checksum(msg))));
+}
+
+static void hyundai_kona_forward_output(const CANPacket_t *msg, CANPacket_t *output, bool *replaced) {
+  if (hyundai_kona_ccnc_feedback && (msg->addr == 0x1CFU) && (msg->bus == 0U) && ((msg->data[2] & 0x28U) != 0U)) {
+    *output = *msg;
+    output->data[2] &= 0xD7U;
+    output->data[0] = hyundai_kona_button_checksum(output);
+    *replaced = true;
+  }
+
   if (hyundai_kona_ccnc_feedback && (msg->addr == 0xEAU) && (msg->bus == 0U) &&
       msg->fd && !msg->extended && (GET_LEN(msg) == 24U) &&
       ((msg->data[3] & 7U) == 0U) && ((msg->data[6] & 0xFCU) == 0U) &&
@@ -2370,7 +2391,8 @@ const safety_hooks hyundai_canfd_hooks = {
   .tx = hyundai_canfd_tx_hook,
   .fwd = hyundai_canfd_fwd_hook,
 #if defined(ALLOW_DEBUG) && !defined(STM32F4)
-  .fwd_output = hyundai_kona_mdps_output,
+  .fwd_packet = hyundai_kona_button_forward_blocked,
+  .fwd_output = hyundai_kona_forward_output,
 #endif
   .get_counter = hyundai_canfd_get_counter,
   .get_checksum = hyundai_canfd_get_checksum,

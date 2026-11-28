@@ -741,6 +741,9 @@ class Car:
         media_eligible=ioniq6_media_eligible(self.CP), fault_active=fault_active)
       self.observe_aol_calibration(CS, now_ns,
         host_enabled if getattr(self.aol_card_intent, 'observe_stock_engagement', False) else host_control_enabled)
+    if self.CP.carFingerprint == HYUNDAI_CAR.HYUNDAI_KONA_2ND_GEN:
+      self.CI.CS.kona_lateral_armed = bool(self.aol_qualified and self.aol_card_intent is not None and
+                                           not fault_active and self.aol_card_intent.output(CS)[0])
     self.observe_distance_personality(CS, now_ns)
     gm_claim = getattr(self, 'gm_distance_claim_tracker', None)
     if gm_claim is not None:

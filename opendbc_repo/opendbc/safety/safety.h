@@ -371,7 +371,7 @@ int safety_fwd_packet_hook(const CANPacket_t *msg) {
 bool safety_uses_forward_transform(const CANPacket_t *msg) {
 #ifdef ALLOW_DEBUG
   return (current_safety_mode == SAFETY_HYUNDAI_CANFD) && hyundai_kona_ccnc_feedback &&
-         (msg->addr == 0xEAU) && (msg->bus == 0U);
+         ((msg->addr == 0xEAU) || (msg->addr == 0x1CFU)) && (msg->bus == 0U);
 #else
   (void)msg;
   return false;
@@ -379,14 +379,9 @@ bool safety_uses_forward_transform(const CANPacket_t *msg) {
 }
 
 int safety_fwd_output_hook(const CANPacket_t *msg, CANPacket_t *output, bool *replaced) {
-  int destination;
-  if (current_hooks->fwd_output != NULL) {
-    destination = safety_fwd_hook(msg->bus, msg->addr);
-    if (destination >= 0) {
-      current_hooks->fwd_output(msg, output, replaced);
-    }
-  } else {
-    destination = safety_fwd_packet_hook(msg);
+  const int destination = safety_fwd_packet_hook(msg);
+  if ((destination >= 0) && (current_hooks->fwd_output != NULL)) {
+    current_hooks->fwd_output(msg, output, replaced);
   }
   return destination;
 }

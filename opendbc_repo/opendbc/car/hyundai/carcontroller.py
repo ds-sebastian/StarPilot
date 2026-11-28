@@ -628,12 +628,15 @@ class CarController(CarControllerBase):
         if fresh_pair:
           support_current = (CS.ccnc_1b5_ts_ns > 0 and CS.ccnc_1b5_ts_ns <= now_nanos and
                              abs(CS.ccnc_1b5_ts_ns - pair_ts) <= 50_000_000)
+          kona_armed_at_stop = (kona_handoff and CS.kona_lateral_armed and CS.out.standstill and not CC.latActive and
+                                display_healthy and stock_source is not None and
+                                stock_source.steering_feedback_current(clock_boot_ns()))
           can_sends.extend(hyundaicanfd.create_ccnc(self.packer, self.CAN, self.CP.openpilotLongitudinalControl,
                                                     CC.enabled, hud_control, CC.leftBlinker, CC.rightBlinker,
                                                     CS.ccnc_161.copy(), CS.ccnc_162.copy(), CS.ccnc_1b5 if support_current else None,
                                                     CS.is_metric, CS.out, show_cruise, show_ccnc_lateral,
                                                     owned_lfa_status=stock_ccnc_owned if kona_handoff or self.ccnc_fault_ownership_required else None,
-                                                    owned_cruise_status=kona_handoff))
+                                                    owned_cruise_status=kona_handoff, lateral_paused=kona_armed_at_stop))
           self.last_ccnc_161_ts_ns = CS.ccnc_161_ts_ns
           self.last_ccnc_162_ts_ns = CS.ccnc_162_ts_ns
       else:
@@ -689,6 +692,7 @@ class CarController(CarControllerBase):
         can_sends.extend(hyundaicanfd.create_fca_warning_light(self.packer, self.CAN, self.frame))
       if self.frame % 2 == 0:
         acc_enabled = CC.enabled
+        stop_request = stopping
         acc_options = {}
         if self.torque_ev_scc_enabled:
           lead = (self.torque_ev_lead_inputs.update(CS.torque_ev_camera_lead, hud_control.leadVisible, now_nanos)
@@ -700,6 +704,9 @@ class CarController(CarControllerBase):
               not (CS.out.standstill or CS.out.brakePressed or CS.out.gasPressed or hud_control.leadVisible or lead.visible) and
               0.0 < CS.out.vEgo < 3.0 and self.CP.stopAccel - 0.02 <= accel < 0.0 and accel >= self.accel_last - 0.02):
             acc_options["jerk_lower"] = 1.2
+          if (kona_handoff and CC.longActive and not CC.cruiseControl.override and
+              not (CS.out.brakePressed or CS.out.gasPressed or hud_control.leadVisible or lead.visible)):
+            stop_request = stopping and (CS.out.standstill or 0.0 <= CS.out.vEgo < 0.3)
         elif is_gv70(self.CP):
           request = scc_request(CC.enabled, CC.cruiseControl.override, stopping, accel, self.accel_last)
           accel = request.accel
@@ -735,8 +742,8 @@ class CarController(CarControllerBase):
             int(CS.out.cruiseState.available), lead_distance, lead_rel_speed, lead_visible, CS.out.vEgo,
             jerk_lower=jerk_lower, jerk_upper=jerk_upper))
         else:
-          can_sends.append(hyundaicanfd.create_acc_control(self.packer, self.CAN, acc_enabled, self.accel_last, accel, stopping, CC.cruiseControl.override,
-                                                           set_speed_in_units, hud_control, **acc_options))
+          can_sends.append(hyundaicanfd.create_acc_control(self.packer, self.CAN, acc_enabled, self.accel_last, accel, stop_request,
+                                                           CC.cruiseControl.override, set_speed_in_units, hud_control, **acc_options))
         self.accel_last = accel
     else:
       # button presses

@@ -1,6 +1,7 @@
 import unittest
 
 from opendbc.car import structs
+from opendbc.car.crc import CRC8J1850, mk_crc8_fun
 from opendbc.car.hyundai.hyundaicanfd import hkg_can_fd_checksum
 from opendbc.safety.tests.libsafety import libsafety_py
 
@@ -78,6 +79,32 @@ class TestHyundaiKonaCcncFeedback(unittest.TestCase):
     self.assertFalse(self.forward(packet)[1])
     self.safety.set_relay_malfunction(True)
     self.assertEqual(self.forward(packet)[:2], (-1, False))
+
+  def test_main_reaches_vehicle_reader_but_not_factory_camera(self):
+    self.debug_mode()
+    checksum = mk_crc8_fun(CRC8J1850, init_crc=0x97, xor_out=0x97)
+    for mask in (0, 0x08, 0x20, 0x28):
+      body = bytearray((0, 0xA0, 0x84 | mask, 0x08, 0, 0, 0, 0))
+      body[0] = checksum(body[1:])
+      packet = libsafety_py.make_CANPacket(0x1CF, 0, body)
+      self.assertTrue(self.safety.safety_uses_forward_transform(packet))
+      self.assertTrue(self.safety.safety_rx_hook(packet))
+      self.assertEqual(bytes(packet[0].data[0:8]), bytes(body))
+      bus, replaced, output = self.forward(packet)
+      self.assertEqual((bus, replaced), (2, bool(mask)))
+      if mask:
+        expected = bytearray(body)
+        expected[2] = 0x84
+        expected[0] = checksum(expected[1:])
+        self.assertEqual(bytes(output[0].data[0:8]), bytes(expected))
+        self.assertFalse(self.safety.safety_tx_hook(libsafety_py.make_CANPacket(0x1CF, 2, expected)))
+    packet[0].data[0] ^= 1
+    self.assertEqual(self.forward(packet)[:2], (-1, False))
+    self.safety.set_relay_malfunction(True)
+    self.assertEqual(self.forward(packet)[:2], (-1, False))
+    self.mode(0x0C0C)
+    self.assertFalse(self.safety.safety_uses_forward_transform(packet))
+    self.assertEqual(self.forward(packet)[:2], (2, False))
 
   def test_host_steering_is_independent_of_camera_counter_and_respects_authority(self):
     self.debug_mode()

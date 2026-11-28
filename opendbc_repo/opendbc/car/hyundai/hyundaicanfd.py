@@ -330,7 +330,7 @@ def create_ioniq6_blindspot_status(counter: int, status: BlindspotStatus, *, bus
 
 # Source-derived CCNC camera display transform; the repository MIT notice applies.
 def create_ccnc(packer, CAN, openpilot_longitudinal, enabled, hud, left_blinker, right_blinker, msg_161, msg_162, msg_1b5,
-                is_metric, out, main_cruise_enabled, lfa_icon, *, owned_lfa_status=None, owned_cruise_status=False):
+                is_metric, out, main_cruise_enabled, lfa_icon, *, owned_lfa_status=None, owned_cruise_status=False, lateral_paused=False):
   if owned_lfa_status or (owned_lfa_status is None and lfa_icon):
     # The host owns lateral; keep unrelated faults and obstruction warnings.
     for field in ("FAULT_LSS", "FAULT_HDA", "FAULT_DAS", "FAULT_LFA", "FAULT_DAW"):
@@ -400,7 +400,7 @@ def create_ccnc(packer, CAN, openpilot_longitudinal, enabled, hud, left_blinker,
   else:
     # Stock steering commands are suppressed in this topology. Its active
     # lane indicators cannot describe the host's inactive lateral command.
-    msg_161.update({"LKA_ICON": 0, "LFA_ICON": 0, "CENTERLINE": 0, "LANELINE_LEFT": 0, "LANELINE_RIGHT": 0,
+    msg_161.update({"LKA_ICON": 0, "LFA_ICON": int(lateral_paused), "CENTERLINE": 0, "LANELINE_LEFT": 0, "LANELINE_RIGHT": 0,
                     "LCA_LEFT_ICON": 0, "LCA_RIGHT_ICON": 0, "LCA_LEFT_ARROW": 0, "LCA_RIGHT_ARROW": 0})
 
   if openpilot_longitudinal:
@@ -417,6 +417,8 @@ def create_ccnc(packer, CAN, openpilot_longitudinal, enabled, hud, left_blinker,
     if owned_cruise_status:
       msg_161["SETSPEED"] = msg_161["SETSPEED_HUD"]
       msg_161["DISTANCE"] = hud.leadDistanceBars if main_cruise_enabled else 0
+      msg_161["HDA_ICON"] = msg_161["SETSPEED_HUD"]
+      msg_161["TARGET"] = int(main_cruise_enabled and enabled)
     msg_162["LEAD"] = 0 if not main_cruise_enabled else 2 if enabled else 1
     if msg_1b5 is not None:
       msg_162["LEAD_DISTANCE"] = msg_1b5["Longitudinal_Distance"]

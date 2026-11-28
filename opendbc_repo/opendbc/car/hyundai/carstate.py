@@ -63,6 +63,7 @@ def get_non_scc_cruise_signals(flags: int, car=None) -> tuple[str, str, str, str
 class CarState(CarStateBase):
   def __init__(self, CP):
     super().__init__(CP)
+    self.kona_lateral_armed = False
     preserve_status = preserves_stock_lfa(CP)
     sportage = CP.carFingerprint == CAR.KIA_SPORTAGE_5TH_GEN
     self.stock_lfa_status = (CANFDLfaStatus(CanBus(CP).CAM, eps_response_margin_ns=10_000_000 if sportage else 0,
