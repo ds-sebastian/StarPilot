@@ -99,6 +99,18 @@ def test_rav4_startup_wait_does_not_stall_live_tracks():
   assert all(not r.points and not r.errors.radarUnavailableTemporary for r in outputs if r is not None)
 
 
+def test_acc_target_reports_unavailable_while_the_fault_flag_is_held():
+  # EVENT_STATE RADAR_FAULT: one set cycle (power-up) is ignored, two or more report radarUnavailableTemporary
+  radar = AccRadarInterface(structs.CarParams())
+  packer = CANPacker(RADAR_DBC)
+  reports = []
+  for i, fault in enumerate((True, False, True, True, True, False)):
+    frames = [packer.make_can_msg("EVENT_STATE", 1, {"RADAR_FAULT": int(fault)})] + acc_frames(packer, i, 60000 * (i + 1))
+    ret = radar.update([(1_000_000_000 + i * 60_000_000, frames)])
+    reports.append((ret.errors.radarUnavailableTemporary, len(ret.points)))
+  assert reports == [(False, 1), (False, 1), (False, 1), (True, 0), (True, 0), (False, 1)]
+
+
 @pytest.mark.parametrize('candidate', sorted(ARS510_RADAR_CAR))
 def test_pcs_alarm_sets_stock_fcw_on_ars510_cars(candidate):
   from opendbc.can import CANParser

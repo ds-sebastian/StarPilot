@@ -17,16 +17,22 @@ TARGET_ADDRS = {0x235, 0x237, 0x239}
 class RadarInterface(RadarInterfaceBase):
   def __init__(self, CP):
     super().__init__(CP)
-    self.rcp = CANParser(RADAR_DBC, [("ACC_TARGET_1", 50), ("ACC_TARGET_2", 50), ("ACC_TARGET_3", 50)], 1)
+    # EVENT_STATE is not required: it carries the radar's fault flag
+    self.rcp = CANParser(RADAR_DBC, [("ACC_TARGET_1", 50), ("ACC_TARGET_2", 50), ("ACC_TARGET_3", 50), ("EVENT_STATE", nan)], 1)
     self.trigger_msg = 0x237
     self.updated_messages = set()
     self.cycle = None
     self.last_record_t = None
+    self.fault_cycles = 0
 
   def update(self, can_strings):
     self.frame += 1
     packets = [(nanos, [(addr, dat, src) for addr, dat, src in frames if addr not in TARGET_ADDRS or len(dat) == 8]) for nanos, frames in can_strings]
-    self.updated_messages.update(self.rcp.update(packets))
+    updated = self.rcp.update(packets)
+    self.updated_messages.update(updated)
+    if 0x196 in updated:
+      # RADAR_FAULT is held while the radar declares itself blocked, and set on one cycle at power-up
+      self.fault_cycles = self.fault_cycles + 1 if self.rcp.vl["EVENT_STATE"]["RADAR_FAULT"] else 0
     t = can_strings[-1][0] * 1e-9 if can_strings else None
     cycle = self.rcp.vl["ACC_TARGET_3"]["TIMESTAMP"]
     clock_seen = bool(self.rcp.ts_nanos["ACC_TARGET_3"]["TIMESTAMP"])
@@ -44,6 +50,9 @@ class RadarInterface(RadarInterfaceBase):
     ret = RadarData()
     if not self.rcp.can_valid:
       ret.errors.canError = True
+      return ret
+    if self.fault_cycles >= 2:
+      ret.errors.radarUnavailableTemporary = True
       return ret
 
     target, position = self.rcp.vl["ACC_TARGET_1"], self.rcp.vl["ACC_TARGET_2"]
